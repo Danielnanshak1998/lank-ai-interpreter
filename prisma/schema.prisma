@@ -1,0 +1,75 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  passwordHash  String
+  role          Role           @default(USER)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  profile       Profile?
+  conversations Conversation[]
+  savedPhrases  SavedPhrase[]
+}
+
+model Profile {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName   String?
+  homeLanguage  String   @default("en")
+  country       String?
+  defaultVoice  String?
+  autoPlayback  Boolean  @default(true)
+  offlineMode   Boolean  @default(false)
+}
+
+model Conversation {
+  id              String    @id @default(uuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title           String
+  sourceLanguage  String
+  targetLanguage  String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  messages        Message[]
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String       // 'USER' or 'ASSISTANT'
+  sourceText     String
+  translatedText String
+  sourceLang     String
+  targetLang     String
+  audioDuration  Float?
+  createdAt      DateTime     @default(now())
+}
+
+model SavedPhrase {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  originalText   String
+  translatedText String
+  sourceLang     String
+  targetLang     String
+  category       String   // e.g. Greetings, Trade, Emergency, Travel
+  notes          String?
+  createdAt      DateTime @default(now())
+}
