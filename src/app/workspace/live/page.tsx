@@ -8,8 +8,13 @@ import {
   VolumeX,
   Loader2,
   ArrowRightLeft,
+  Bookmark,
 } from 'lucide-react';
 import { LANGUAGES } from '../../../lib/languages';
+import {
+  addTranslationRecord,
+  toggleSavedRecord,
+} from '../../../lib/storage';
 
 const LOCALE_MAP: Record<string, string> = {
   en: 'en-US',
@@ -39,6 +44,8 @@ export default function LivePage() {
   const [loading, setLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [autoSpeak, setAutoSpeak] = useState(false);
+  const [currentRecordId, setCurrentRecordId] = useState<string | null>(null);
+  const [isCurrentSaved, setIsCurrentSaved] = useState(false);
 
   const recognitionRef = useRef<any>(null);
 
@@ -89,12 +96,21 @@ export default function LivePage() {
     window.speechSynthesis.speak(utterance);
   };
 
+  const handleToggleBookmark = () => {
+    if (!currentRecordId) return;
+    const updated = toggleSavedRecord(currentRecordId);
+    const match = updated.find((item) => item.id === currentRecordId);
+    setIsCurrentSaved(Boolean(match?.saved));
+  };
+
   const handleInterpret = async (textToTranslate?: string) => {
     const text = (textToTranslate ?? inputText).trim();
     if (!text) return;
 
     setLoading(true);
     setTranscript(text);
+    setCurrentRecordId(null);
+    setIsCurrentSaved(false);
 
     try {
       const formData = new FormData();
@@ -110,14 +126,28 @@ export default function LivePage() {
       const data = await response.json();
       if (response.ok) {
         const translatedText = data.translation ?? '';
-        setTranslation(translatedText);
-        setEngineUsed(data.engineUsed ?? '');
-        setLatency(
-          typeof data.latencyMs === 'number' ? data.latencyMs : null
-        );
+        const engine = data.engineUsed ?? '';
+        const elapsed =
+          typeof data.latencyMs === 'number' ? data.latencyMs : null;
 
-        if (autoSpeak && translatedText) {
-          speakText(translatedText, targetLang);
+        setTranslation(translatedText);
+        setEngineUsed(engine);
+        setLatency(elapsed);
+
+        if (translatedText) {
+          const savedEntry = addTranslationRecord({
+            sourceText: text,
+            translatedText,
+            sourceLang,
+            targetLang,
+            engineUsed: engine,
+            latencyMs: elapsed,
+          });
+          setCurrentRecordId(savedEntry.id);
+
+          if (autoSpeak) {
+            speakText(translatedText, targetLang);
+          }
         }
       } else {
         setTranslation(
@@ -348,24 +378,45 @@ export default function LivePage() {
             </div>
           </div>
 
-          <div className="flex items-center justify-between pt-4 border-t border-slate-800/80">
-            <button
-              type="button"
-              onClick={toggleAutoSpeak}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-colors ${
-                autoSpeak
-                  ? 'bg-indigo-600/15 text-indigo-300 border-indigo-500/30'
-                  : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
-              }`}
-              title="Toggle automatic voice playback after translation"
-            >
-              {autoSpeak ? (
-                <Volume2 className="w-3.5 h-3.5 text-indigo-400" />
-              ) : (
-                <VolumeX className="w-3.5 h-3.5 text-slate-500" />
-              )}
-              Auto-Speak: {autoSpeak ? 'On' : 'Off'}
-            </button>
+          <div className="flex items-center justify-between pt-4 border-t border-slate-800/80 gap-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleAutoSpeak}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-colors ${
+                  autoSpeak
+                    ? 'bg-indigo-600/15 text-indigo-300 border-indigo-500/30'
+                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                }`}
+                title="Toggle automatic voice playback after translation"
+              >
+                {autoSpeak ? (
+                  <Volume2 className="w-3.5 h-3.5 text-indigo-400" />
+                ) : (
+                  <VolumeX className="w-3.5 h-3.5 text-slate-500" />
+                )}
+                Auto-Speak: {autoSpeak ? 'On' : 'Off'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleToggleBookmark}
+                disabled={!currentRecordId}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-colors disabled:opacity-40 ${
+                  isCurrentSaved
+                    ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                }`}
+                title="Save translation to Saved Phrases"
+              >
+                <Bookmark
+                  className={`w-3.5 h-3.5 ${
+                    isCurrentSaved ? 'fill-amber-400 text-amber-400' : ''
+                  }`}
+                />
+                {isCurrentSaved ? 'Saved' : 'Save'}
+              </button>
+            </div>
 
             <button
               type="button"
