@@ -4,7 +4,7 @@ export interface TranslationRecord {
   translatedText: string;
   sourceLang: string;
   targetLang: string;
-  engineUsed?: string;
+  engineUsed?: string | null;
   latencyMs?: number | null;
   saved: boolean;
   createdAt: string;
@@ -69,4 +69,97 @@ export function deleteTranslationRecord(id: string): TranslationRecord[] {
 export function clearTranslationHistory(): void {
   if (typeof window === 'undefined') return;
   localStorage.removeItem(HISTORY_KEY);
+}
+
+export async function fetchTranslationRecords(): Promise<{
+  records: TranslationRecord[];
+  source: 'postgres' | 'local';
+}> {
+  try {
+    const res = await fetch('/api/history', { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.records)) {
+        saveTranslationRecords(data.records);
+        return { records: data.records, source: 'postgres' };
+      }
+    }
+  } catch {
+    // Fall back to localStorage
+  }
+  return { records: getTranslationRecords(), source: 'local' };
+}
+
+export async function addTranslationRecordAsync(
+  entry: Omit<TranslationRecord, 'id' | 'saved' | 'createdAt'>
+): Promise<TranslationRecord> {
+  try {
+    const res = await fetch('/api/history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(entry),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.record) {
+        const existing = getTranslationRecords();
+        saveTranslationRecords([data.record, ...existing].slice(0, 100));
+        return data.record;
+      }
+    }
+  } catch {
+    // Fall back to localStorage
+  }
+
+  return addTranslationRecord(entry);
+}
+
+export async function toggleSavedRecordAsync(
+  id: string
+): Promise<TranslationRecord[]> {
+  try {
+    const res = await fetch(`/api/history/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.record) {
+        const existing = getTranslationRecords();
+        const updated = existing.map((item) =>
+          item.id === id ? data.record : item
+        );
+        saveTranslationRecords(updated);
+        return updated;
+      }
+    }
+  } catch {
+    // Continue updating local cache
+  }
+
+  return toggleSavedRecord(id);
+}
+
+export async function deleteTranslationRecordAsync(
+  id: string
+): Promise<TranslationRecord[]> {
+  try {
+    await fetch(`/api/history/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  } catch {
+    // Continue updating local cache
+  }
+
+  return deleteTranslationRecord(id);
+}
+
+export async function clearTranslationHistoryAsync(): Promise<void> {
+  try {
+    await fetch('/api/history', { method: 'DELETE' });
+  } catch {
+    // Continue clearing local cache
+  }
+  clearTranslationHistory();
 }

@@ -9,6 +9,10 @@ import {
   Loader2,
   ArrowRightLeft,
   Bookmark,
+  Copy,
+  Check,
+  Trash2,
+  Sparkles,
 } from 'lucide-react';
 import { LANGUAGES } from '../../../lib/languages';
 import {
@@ -44,15 +48,29 @@ export default function LivePage() {
   const [loading, setLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [autoSpeak, setAutoSpeak] = useState(false);
+  const [handsFreeMic, setHandsFreeMic] = useState(true);
   const [currentRecordId, setCurrentRecordId] = useState<string | null>(null);
   const [isCurrentSaved, setIsCurrentSaved] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const recognitionRef = useRef<any>(null);
+  const latestSpokenRef = useRef<string>('');
+  const handsFreeRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    handsFreeRef.current = handsFreeMic;
+  }, [handsFreeMic]);
 
   useEffect(() => {
     const savedAutoSpeak = localStorage.getItem('lank_auto_speak');
     if (savedAutoSpeak === 'true') {
       setAutoSpeak(true);
+    }
+
+    const savedHandsFree = localStorage.getItem('lank_hands_free_mic');
+    if (savedHandsFree === 'false') {
+      setHandsFreeMic(false);
+      handsFreeRef.current = false;
     }
 
     return () => {
@@ -70,6 +88,13 @@ export default function LivePage() {
     if (!nextValue && typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
+  };
+
+  const toggleHandsFreeMic = () => {
+    const nextValue = !handsFreeMic;
+    setHandsFreeMic(nextValue);
+    handsFreeRef.current = nextValue;
+    localStorage.setItem('lank_hands_free_mic', String(nextValue));
   };
 
   const speakText = (text: string, lang: string) => {
@@ -101,6 +126,28 @@ export default function LivePage() {
     const updated = toggleSavedRecord(currentRecordId);
     const match = updated.find((item) => item.id === currentRecordId);
     setIsCurrentSaved(Boolean(match?.saved));
+  };
+
+  const handleCopyTranslation = async () => {
+    if (!translation || typeof navigator === 'undefined') return;
+    try {
+      await navigator.clipboard.writeText(translation);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy text:', err);
+    }
+  };
+
+  const handleClear = () => {
+    setInputText('');
+    setTranscript('');
+    setTranslation('');
+    setEngineUsed('');
+    setLatency(null);
+    setCurrentRecordId(null);
+    setIsCurrentSaved(false);
+    latestSpokenRef.current = '';
   };
 
   const handleInterpret = async (textToTranslate?: string) => {
@@ -183,6 +230,7 @@ export default function LivePage() {
     }
 
     recognitionRef.current?.stop();
+    latestSpokenRef.current = '';
 
     const recognition = new SpeechRecognition();
     recognition.lang = getSpeechLocale(sourceLang);
@@ -199,12 +247,15 @@ export default function LivePage() {
       for (let i = event.resultIndex; i < event.results.length; i++) {
         spokenText += event.results[i][0].transcript;
       }
-      setInputText(spokenText.trim());
+      const cleaned = spokenText.trim();
+      latestSpokenRef.current = cleaned;
+      setInputText(cleaned);
     };
 
     recognition.onerror = (event: any) => {
       console.error('Speech recognition error:', event.error);
       setIsRecording(false);
+      latestSpokenRef.current = '';
 
       if (event.error === 'not-allowed') {
         setTranslation(
@@ -227,6 +278,11 @@ export default function LivePage() {
 
     recognition.onend = () => {
       setIsRecording(false);
+      const finalSpeech = latestSpokenRef.current.trim();
+      if (handsFreeRef.current && finalSpeech) {
+        latestSpokenRef.current = '';
+        handleInterpret(finalSpeech);
+      }
     };
 
     recognitionRef.current = recognition;
@@ -242,6 +298,10 @@ export default function LivePage() {
   const swapLanguages = () => {
     setSourceLang(targetLang);
     setTargetLang(sourceLang);
+    if (translation) {
+      setInputText(translation);
+      setTranslation('');
+    }
   };
 
   return (
@@ -303,11 +363,23 @@ export default function LivePage() {
               <label className="text-xs font-medium text-slate-400 uppercase tracking-wider">
                 Source Speech / Text
               </label>
-              {transcript && (
-                <span className="text-[11px] text-slate-500 truncate max-w-[180px]">
-                  Sent: {transcript}
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {transcript && (
+                  <span className="text-[11px] text-slate-500 truncate max-w-[140px]">
+                    Sent: {transcript}
+                  </span>
+                )}
+                {(inputText || translation) && (
+                  <button
+                    type="button"
+                    onClick={handleClear}
+                    className="text-slate-500 hover:text-slate-300 transition-colors"
+                    title="Clear text"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
             <textarea
               value={inputText}
@@ -317,19 +389,35 @@ export default function LivePage() {
             />
           </div>
 
-          <div className="flex items-center justify-between pt-4 border-t border-slate-800/80">
-            <button
-              type="button"
-              onClick={toggleRecording}
-              className={`p-3 rounded-full transition-all ${
-                isRecording
-                  ? 'bg-red-600 text-white animate-pulse shadow-lg shadow-red-600/30'
-                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
-              }`}
-              title={isRecording ? 'Stop Recording' : 'Record Voice'}
-            >
-              <Mic className="w-5 h-5" />
-            </button>
+          <div className="flex items-center justify-between pt-4 border-t border-slate-800/80 gap-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleRecording}
+                className={`p-3 rounded-full transition-all ${
+                  isRecording
+                    ? 'bg-red-600 text-white animate-pulse shadow-lg shadow-red-600/30'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                }`}
+                title={isRecording ? 'Stop Recording' : 'Record Voice'}
+              >
+                <Mic className="w-5 h-5" />
+              </button>
+
+              <button
+                type="button"
+                onClick={toggleHandsFreeMic}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium border transition-colors ${
+                  handsFreeMic
+                    ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                }`}
+                title="Automatically translate immediately when you finish speaking"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Hands-Free: {handsFreeMic ? 'On' : 'Off'}
+              </button>
+            </div>
 
             <button
               type="button"
@@ -348,16 +436,35 @@ export default function LivePage() {
         {/* Output Box */}
         <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between">
           <div>
-            <div className="flex justify-between items-center mb-2">
+            <div className="flex justify-between items-center mb-2 gap-2">
               <label className="text-xs font-medium text-slate-400 uppercase tracking-wider">
                 Translated Interpretation
               </label>
-              {engineUsed && (
-                <span className="text-[10px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full">
-                  {engineUsed}
-                  {latency !== null ? ` (${latency}ms)` : ''}
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {engineUsed && (
+                  <span className="text-[10px] bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-2 py-0.5 rounded-full">
+                    {engineUsed}
+                    {latency !== null ? ` (${latency}ms)` : ''}
+                  </span>
+                )}
+                {translation && (
+                  <button
+                    type="button"
+                    onClick={handleCopyTranslation}
+                    className="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200 transition-colors"
+                    title="Copy translation"
+                  >
+                    {copied ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        <span className="text-emerald-400">Copied</span>
+                      </>
+                    ) : (
+                      <Copy className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="h-40 overflow-y-auto text-slate-100 text-base">
